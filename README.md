@@ -1,74 +1,118 @@
-# DevTools Collection
+# Toolset
 
-A set of powerful command-line utilities for code management and repository operations.
+A collection of utility scripts for code management, source analysis, and repository operations.
 
 ## Tools Overview
 
-- **gathercode**: Python script that intelligently collects code files while respecting gitignore rules
-- **mergesub**: Bash utility for working with git subtrees
-- **smthfy**: Android ROM adaptation helper for device tree renaming
+### gathercode
 
-## Installation
+A Python utility that intelligently collects and formats source code from a project directory:
 
-```bash
-git clone https://github.com/your-username/devtools-collection.git
-cd devtools-collection
-chmod +x gathercode mergesub smthfy  # Make scripts executable
-```
+- Respects `.gitignore` rules and common exclusion patterns
+- Formats output with file boundary markers for AI code analysis
+- Supports custom file extensions and exclusions
+- Includes size limiting to control output volume
+
+Perfect for preparing codebases for analysis with AI assistants using the included system prompts.
+
+### mergesub
+
+A minimal Bash script for git subtree operations that:
+
+- Fetches from a remote repository
+- Adds the fetched content as a subtree at a specified path
+- Shows the git log for a specific file after the operation
+
+### smthfy
+
+A specialized Bash utility for Android ROM device adaptation that:
+
+- Performs bulk string replacements across files
+- Renames specific ROM-related files
+- Preserves git history during the renaming process
+- Stages all changes automatically
+
+## System Prompts
+
+The `sysprompts` directory contains specialized prompts designed to work with the output of `gathercode`:
+
+- **codeAnalysis.md**: System prompt for general code analysis across various languages
+- **androidAnalysis.md**: System prompt specifically tailored for Android codebase review
 
 ## Usage Examples
 
-### Gather Code
-```bash
-# Collect code with default settings
-./gathercode /path/to/project --output codebase.txt
+### Code Gathering
 
-# Custom file types and size limit
-./gathercode . --extensions .py .sh --max-size 2048
+```bash
+# Basic usage
+./gathercode /path/to/project -o output.txt
+
+# With custom extensions and size limits
+./gathercode /path/to/project -e .py .js .ts --max-size 5000 -o code_for_analysis.txt
+
+# Excluding additional directories
+./gathercode /path/to/project --exclude-dirs tests fixtures -o output.txt
 ```
 
-### Merge Subtree
+### Subtree Operations
+
 ```bash
-./mergesub component-name https://github.com/user/repo
+# Add a repository as a subtree
+./mergesub target/directory https://github.com/user/repository
 ```
 
-### Device Adaptation
+### ROM Adaptation
+
 ```bash
-./smthfy old_rom_name new_rom_name
+# Rename ROM components from old name to new name
+./smthfy old_device_name new_device_name
+```
+
+## Installation
+
+Clone the repository and make the scripts executable:
+
+```bash
+git clone https://github.com/username/toolset.git
+cd toolset
+chmod +x gathercode mergesub smthfy
 ```
 
 ## Tools Reference
 
 ### gathercode
+
 ```
 Usage: gathercode project_root [OPTIONS]
+
 Options:
-  -o, --output       Save output to file
-  -e, --extensions   File extensions to include
-  --exclude-dirs     Additional directories to exclude
-  --max-size         Size limit in KB (default: no limit)
+  -o, --output         Save output to file
+  -e, --extensions     File extensions to include
+  --exclude-dirs       Additional directories to exclude
+  --exclude-files      Additional file patterns to exclude
+  --no-gitignore       Ignore .gitignore rules
+  --max-size KB        Maximum size limit in KB
 ```
 
 ### mergesub
+
 ```
-Adds a subtree from a remote repository
 Usage: ./mergesub <local-prefix> <repository-url>
 ```
 
 ### smthfy
+
 ```
-Bulk renames ROM components for device adaptation
 Usage: ./smthfy <old-rom-name> <new-rom-name>
 ```
 
-## Contributing
+## Workflow Example
 
-Contributions are welcome! Please follow these steps:
-1. Open an issue to discuss proposed changes
-2. Fork the repository and create a feature branch
-3. Include tests for new functionality
-4. Submit a pull request with clear description of changes
+1. Gather code from your project:
+   ```bash
+   ./gathercode /path/to/project -o project_code.txt
+   ```
 
-## License
+2. Use the output with an AI assistant along with the appropriate system prompt from `sysprompts/`
 
-[MIT](https://choosealicense.com/licenses/mit/)
+3. For Android projects, use the Android-specific system prompt for more relevant analysis.
