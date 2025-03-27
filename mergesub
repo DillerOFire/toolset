@@ -1,0 +1,4 @@
+#!/usr/bin/bash
+git fetch $2
+git subtree add -P $1 FETCH_HEAD
+git log --follow -- f1

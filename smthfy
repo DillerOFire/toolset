@@ -1,0 +1,12 @@
+#!/bin/bash
+# Usage: ./device_adapt.sh $oldromname $newromname 
+mv .git /tmp
+
+export oldstring=$1
+export newstring=$2
+grep -rl $oldstring . | xargs sed -i "s/$oldstring/$newstring/g"
+mv $oldstring'_audi.mk' $newstring'_audi.mk'
+mv $oldstring.dependencies $newstring.dependencies
+
+mv /tmp/.git .
+git add .

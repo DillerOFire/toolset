@@ -1,0 +1,296 @@
+#!/usr/bin/env python3
+import os
+import argparse
+import fnmatch
+import sys
+from pathlib import Path
+
+# --- Default Configuration ---
+# Common code file extensions
+DEFAULT_EXTENSIONS = [
+    '.py', '.js', '.jsx', '.ts', '.tsx', '.html', '.css', '.scss', '.java',
+    '.kt', '.swift', '.go', '.rb', '.php', '.cs', '.c', '.cpp', '.h', '.hpp',
+    '.rs', '.vue', '.svelte', '.sql', '.sh', '.md'
+]
+# Common directories to always exclude
+DEFAULT_EXCLUDE_DIRS = [
+    '.git', '.vscode', '.idea', 'node_modules', 'venv', '.venv', 'env', '.env',
+    '__pycache__', 'build', 'dist', 'target', 'logs', 'coverage', '.pytest_cache',
+    '.mypy_cache', '.ruff_cache', 'site-packages', 'bin', 'lib', 'include'
+]
+# Common file patterns to always exclude
+DEFAULT_EXCLUDE_FILES = [
+    '*.pyc', '*.log', '*.tmp', '*.swp', '*.swo', 'package-lock.json', 'yarn.lock',
+    '*.class', '*.o', '*.obj', '*.dll', '*.so', '*.exe'
+]
+# --- End Configuration ---
+
+def read_gitignore_rules(gitignore_path):
+    """Reads and parses patterns from a .gitignore file."""
+    if not gitignore_path.is_file():
+        return []
+    rules = []
+    try:
+        with open(gitignore_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    # Basic handling: Does not fully replicate complex gitignore behavior (e.g., negation)
+                    # fnmatch is used later, which supports glob patterns
+                    rules.append(line)
+    except Exception as e:
+        print(f"Warning: Could not read {gitignore_path}: {e}", file=sys.stderr)
+    return rules
+
+def should_exclude(path, root_path, exclude_dirs, exclude_files, gitignore_rules):
+    """Checks if a path should be excluded based on rules."""
+    relative_path = path.relative_to(root_path)
+    path_str = str(path)
+    relative_path_str = str(relative_path)
+
+    # Check directory exclusions
+    for part in relative_path.parts:
+        if part in exclude_dirs:
+            # print(f"Debug: Excluding '{relative_path_str}' due to dir part '{part}'")
+            return True
+
+    # Check file pattern exclusions
+    for pattern in exclude_files:
+        if fnmatch.fnmatch(path.name, pattern):
+            # print(f"Debug: Excluding '{relative_path_str}' due to file pattern '{pattern}'")
+            return True
+
+    # Check .gitignore rules (match against relative path)
+    for pattern in gitignore_rules:
+        # Handle directory patterns (ending with /)
+        if pattern.endswith('/'):
+            if path.is_dir() and fnmatch.fnmatch(relative_path_str + '/', pattern):
+                 # print(f"Debug: Excluding dir '{relative_path_str}' due to gitignore '{pattern}'")
+                 return True
+            # Also match if any parent dir matches the gitignore dir pattern
+            if any(fnmatch.fnmatch(str(p) + '/', pattern) for p in relative_path.parents):
+                # print(f"Debug: Excluding '{relative_path_str}' due to parent matching gitignore '{pattern}'")
+                return True
+        # Handle file/general patterns
+        elif fnmatch.fnmatch(relative_path_str, pattern) or \
+             any(fnmatch.fnmatch(str(p), pattern) for p in relative_path.parents): # Check parent paths too
+            # print(f"Debug: Excluding '{relative_path_str}' due to gitignore '{pattern}'")
+            return True
+
+    return False
+
+
+def gather_code(
+    project_root,
+    extensions,
+    exclude_dirs,
+    exclude_files,
+    use_gitignore=True,
+    max_size_kb=None
+):
+    """
+    Gathers code from the project directory, filtering and formatting it.
+
+    Args:
+        project_root (str): Path to the project's root directory.
+        extensions (list): List of file extensions to include.
+        exclude_dirs (list): List of directory names to exclude.
+        exclude_files (list): List of file patterns (glob) to exclude.
+        use_gitignore (bool): Whether to read and use .gitignore rules.
+        max_size_kb (int, optional): Maximum total size of gathered code in KB.
+
+    Returns:
+        str: A single string containing the formatted code, or None if size limit exceeded early.
+    """
+    root_path = Path(project_root).resolve()
+    if not root_path.is_dir():
+        raise ValueError(f"Project root not found or not a directory: {project_root}")
+
+    gitignore_rules = []
+    if use_gitignore:
+        gitignore_path = root_path / ".gitignore"
+        gitignore_rules = read_gitignore_rules(gitignore_path)
+        print(f"Info: Loaded {len(gitignore_rules)} rules from .gitignore")
+
+    # Combine default and custom exclusions ensuring no duplicates
+    all_exclude_dirs = set(DEFAULT_EXCLUDE_DIRS) | set(exclude_dirs)
+    all_exclude_files = set(DEFAULT_EXCLUDE_FILES) | set(exclude_files)
+
+    gathered_code = []
+    total_size = 0
+    max_bytes = max_size_kb * 1024 if max_size_kb is not None else float('inf')
+    files_processed = 0
+    files_included = 0
+
+    print(f"Starting code gathering in: {root_path}")
+    print(f"Including extensions: {', '.join(extensions)}")
+    print(f"Excluding dirs: {', '.join(all_exclude_dirs)}")
+    print(f"Excluding file patterns: {', '.join(all_exclude_files)}")
+    if use_gitignore:
+        print(f"Using .gitignore rules.")
+    if max_size_kb:
+        print(f"Size limit: {max_size_kb} KB")
+
+    # os.walk is generally efficient
+    for current_root, dirnames, filenames in os.walk(root_path, topdown=True):
+        current_path = Path(current_root)
+
+        # --- Directory Filtering ---
+        # Filter dirnames *in place* to prevent descending into excluded dirs
+        original_dirnames = list(dirnames) # Copy for iteration while modifying
+        dirnames[:] = [
+            d for d in original_dirnames
+            if not should_exclude(
+                current_path / d, root_path, all_exclude_dirs, [], gitignore_rules
+            )
+        ]
+        # Debug: Show skipped dirs
+        # skipped_dirs = set(original_dirnames) - set(dirnames)
+        # if skipped_dirs:
+        #    print(f"Debug: Skipping subdirs in '{current_path.relative_to(root_path)}': {skipped_dirs}")
+
+
+        # --- File Processing ---
+        for filename in filenames:
+            files_processed += 1
+            file_path = current_path / filename
+
+            # Check extension
+            if not any(filename.lower().endswith(ext) for ext in extensions):
+                continue
+
+            # Check file exclusions (dirs already handled by pruning dirnames)
+            if should_exclude(file_path, root_path, all_exclude_dirs, all_exclude_files, gitignore_rules):
+                 continue
+
+            relative_path = file_path.relative_to(root_path)
+
+            try:
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+
+                file_size = len(content.encode('utf-8')) # Size in bytes
+
+                if total_size + file_size > max_bytes:
+                    print(f"\nWarning: Reached size limit ({max_size_kb} KB). Stopping.", file=sys.stderr)
+                    print(f"Processed {files_processed} files, included {files_included} files.", file=sys.stderr)
+                    # Return partial result accumulated so far
+                    return "\n\n".join(gathered_code)
+
+
+                header = f"--- START FILE: {relative_path} ---"
+                footer = f"--- END FILE: {relative_path} ---"
+                gathered_code.append(f"{header}\n{content}\n{footer}")
+                total_size += file_size
+                files_included += 1
+
+                # Progress indicator
+                print(f"\rProcessed: {files_processed}, Included: {files_included}, Size: {total_size / 1024:.2f} KB", end="")
+
+
+            except FileNotFoundError:
+                print(f"\nWarning: File not found (should not happen with os.walk): {file_path}", file=sys.stderr)
+            except Exception as e:
+                print(f"\nWarning: Could not read file {file_path}: {e}", file=sys.stderr)
+
+
+    print(f"\nFinished gathering code.")
+    print(f"Processed {files_processed} files, included {files_included} files.")
+    print(f"Total gathered size: {total_size / 1024:.2f} KB")
+
+    return "\n\n".join(gathered_code) # Join file contents with double newlines
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Gather code from a project folder, format for AI context.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    parser.add_argument(
+        "project_root",
+        help="Path to the root directory of the project."
+    )
+    parser.add_argument(
+        "-o", "--output",
+        help="Optional path to save the output file. If not provided, prints to console."
+    )
+    parser.add_argument(
+        "-e", "--extensions",
+        nargs='+',
+        default=DEFAULT_EXTENSIONS,
+        help="List of file extensions to include (e.g., .py .js .html)."
+    )
+    parser.add_argument(
+        "--exclude-dirs",
+        nargs='+',
+        default=[],
+        help="Additional directory names to exclude."
+    )
+    parser.add_argument(
+        "--exclude-files",
+        nargs='+',
+        default=[],
+        help="Additional file name patterns (glob) to exclude (e.g., '*.test.js' 'temp_*')."
+    )
+    parser.add_argument(
+        "--no-gitignore",
+        action="store_true",
+        help="Do not use rules from the .gitignore file in the project root."
+    )
+    parser.add_argument(
+        "--max-size",
+        type=int,
+        default=None,
+        metavar="KB",
+        help="Maximum total size of gathered code in Kilobytes (KB). Stops when limit is reached."
+    )
+
+    args = parser.parse_args()
+
+    try:
+        final_code = gather_code(
+            project_root=args.project_root,
+            extensions=args.extensions,
+            exclude_dirs=args.exclude_dirs,
+            exclude_files=args.exclude_files,
+            use_gitignore=not args.no_gitignore,
+            max_size_kb=args.max_size
+        )
+
+        if final_code is None: # Indicates size limit reached very early
+             print("Error: Size limit possibly too small or no files gathered.", file=sys.stderr)
+             sys.exit(1)
+
+
+        if args.output:
+            try:
+                with open(args.output, 'w', encoding='utf-8') as f:
+                    f.write(final_code)
+                print(f"Successfully saved gathered code to: {args.output}")
+            except Exception as e:
+                print(f"Error writing to output file {args.output}: {e}", file=sys.stderr)
+                # Optionally print to console as fallback?
+                # print("\n--- Code Output (Fallback) ---\n")
+                # print(final_code)
+                sys.exit(1)
+        else:
+            # Ensure print doesn't cause encoding errors on terminals
+            try:
+                 print("\n--- Start Gathered Code ---")
+                 sys.stdout.buffer.write(final_code.encode('utf-8', errors='replace'))
+                 sys.stdout.buffer.write(b"\n--- End Gathered Code ---\n")
+                 # print(final_code) # Simpler, but might fail on weird chars/terminal configs
+            except Exception as e:
+                 print(f"\nError printing output to console: {e}", file=sys.stderr)
+                 print("Consider using the -o option to save to a file.", file=sys.stderr)
+                 sys.exit(1)
+
+
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}", file=sys.stderr)
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()
